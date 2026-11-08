@@ -44,6 +44,9 @@ button:focus-visible { outline: 2px solid var(--rad); outline-offset: 2px; }
 .ticks { display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--muted); margin-top: -4px; }
 .presets { display: flex; flex-wrap: wrap; gap: 6px; }
 .presets button { padding: 5px 9px; font-size: 0.78rem; font-weight: 600; }
+.presets-title { width: 100%; font-size: 0.74rem; color: var(--muted); }
+.fc { display: flex; gap: 8px; align-items: center; font-size: 0.85rem; cursor: pointer; }
+.fc input { accent-color: #f2c94c; width: 16px; height: 16px; }
 .flux .note { text-align: left; max-width: none; margin: 0; font-size: 0.74rem; }
 .status { display: flex; gap: 8px; align-items: center; font-size: 0.82rem; }
 .status i { width: 10px; height: 10px; border-radius: 50%; background: var(--lv, #4fd18b); flex: none; }
@@ -57,7 +60,7 @@ button:focus-visible { outline: 2px solid var(--rad); outline-offset: 2px; }
 <div class="hud top">
   <div class="title">
     <h1>READYation</h1>
-    <p>Radiation readiness on the astronaut visor</p>
+    <p>How a READYation alert reaches the astronaut visor</p>
   </div>
   <div class="hint">Drag to rotate · Scroll to zoom · Double-click to reset</div>
 </div>
@@ -71,16 +74,18 @@ button:focus-visible { outline: 2px solid var(--rad); outline-offset: 2px; }
   </div>
   <section class="flux" aria-labelledby="fluxTitle">
     <div class="flux-head"><h2 id="fluxTitle">Proton flux</h2><span class="mono" id="fluxVal">1 pfu</span></div>
-    <p class="status" id="status" role="status" aria-live="polite"><i></i><span id="statusTxt">Quiet · below S1. Normal operations.</span></p>
-    <input type="range" id="fluxIn" min="0" max="5" step="0.01" value="0" aria-label="Proton flux, greater than 10 MeV, log scale from 1 to 100,000 pfu">
-    <div class="ticks mono" aria-hidden="true"><span>1</span><span>10</span><span>100</span><span>1k</span><span>10k</span><span>100k</span></div>
-    <div class="presets" role="group" aria-label="Real events">
-      <button type="button" data-f="1">Quiet</button>
-      <button type="button" data-f="207">May 2024 · 207</button>
-      <button type="button" data-f="1298">Sep 2017 · 1,298</button>
-      <button type="button" data-f="5655">Mar 2012 · 5,655</button>
+    <p class="status" id="status" role="status" aria-live="polite"><i></i><span id="statusTxt">No alert. Normal operations.</span></p>
+    <input type="range" id="fluxIn" min="-1" max="5" step="0.01" value="-0.52" aria-label="Proton flux, greater than 10 MeV, log scale from 0.1 to 100,000 pfu">
+    <div class="ticks mono" aria-hidden="true"><span>0.1</span><span>1</span><span>10</span><span>100</span><span>1k</span><span>10k</span><span>100k</span></div>
+    <label class="fc" for="fcIn"><input type="checkbox" id="fcIn"> READYation forecasts a storm in the next 6 h</label>
+    <div class="presets" role="group" aria-label="Replay of the September 2017 storm">
+      <span class="presets-title">Sep 2017 replay</span>
+      <button type="button" data-f="0.3">Quiet</button>
+      <button type="button" data-f="0.5" data-fc="1">10 Sep 13:40 · forecast watch</button>
+      <button type="button" data-f="10">10 Sep 16:45 · storm begins</button>
+      <button type="button" data-f="1055">11 Sep 00:20 · S3</button>
     </div>
-    <p class="note">Protons above 10 MeV. Thresholds follow NOAA's radiation storm scale (S1 = 10, S2 = 100, S3 = 1,000 pfu). Protons and hits are illustrative.</p>
+    <p class="note">Tiers match the READYation console. Yellow when flux holds at 1 pfu or more for 15 minutes, or when READYation forecasts a storm. Orange at NOAA S1 (10 pfu). Red at NOAA S3 (1,000 pfu). Protons and hits are illustrative.</p>
   </section></div>
 
 <div id="fail">This view needs WebGL, which this browser has turned off.</div>
@@ -282,13 +287,14 @@ button:focus-visible { outline: 2px solid var(--rad); outline-offset: 2px; }
   helmet.rotation.set(0.08, -0.5, 0);
 
   /* ---------- proton hits, driven by the flux level (illustrative) ---------- */
+  // Tiers match the READYation mission console.
   const LEVELS = [
-    { min: 0,    tag: "Quiet",          noaa: "below S1", color: 0x4fd18b, css: "#4fd18b", head: "No radiation storm.", act: "Normal operations.", hud: "NOMINAL" },
-    { min: 10,   tag: "Caution",        noaa: "NOAA S1",  color: 0xf2c94c, css: "#f2c94c", head: "Radiation storm starting. Avoid exposure.", act: "Keep EVA short. Plan a route back to shielding.", hud: "AVOID EXPOSURE · KEEP EVA SHORT" },
-    { min: 100,  tag: "Warning",        noaa: "NOAA S2",  color: 0xf08a3c, css: "#f08a3c", head: "Radiation rising. Avoid new EVA.", act: "Do not start an EVA. Stay near the shelter.", hud: "NO NEW EVA · STAY NEAR SHELTER" },
-    { min: 1000, tag: "Danger",         noaa: "NOAA S3+", color: 0xff4d4d, css: "#ff4d4d", head: "Strong radiation storm. Take shelter now.", act: "End EVA. Move to the most shielded area.", hud: "END EVA · SHELTER NOW" },
+    { min: 0,    key: "green",  tag: "Clear",  label: "No alert",              color: 0x4fd18b, css: "#4fd18b", act: "Normal operations.", hud: "NOMINAL" },
+    { min: 1,    key: "yellow", tag: "Watch",  label: "Yellow watch",          color: 0xf2c94c, css: "#f2c94c", act: "Plan to finish or postpone EVAs. Ready shielding.", hud: "FINISH OR POSTPONE EVA" },
+    { min: 10,   key: "orange", tag: "Storm",  label: "Orange storm (S1–S2)",  color: 0xf08a3c, css: "#f08a3c", act: "No new EVAs. Stay near the shelter.", hud: "NO NEW EVA · STAY NEAR SHELTER" },
+    { min: 1000, key: "red",    tag: "Danger", label: "Red EVA hazard (S3+)",  color: 0xff4d4d, css: "#ff4d4d", act: "End EVA. Move to the shielded area.", hud: "END EVA · SHELTER NOW" },
   ];
-  let flux = 1, level = LEVELS[0];
+  let flux = 0.3, forecast = false, level = LEVELS[0];
   const NP = 90;
   const pPos = new Float32Array(NP * 6);
   const pGeo = new THREE.BufferGeometry();
@@ -450,19 +456,24 @@ button:focus-visible { outline: 2px solid var(--rad); outline-offset: 2px; }
   btnSpin.setAttribute("aria-pressed", autoSpin);
   btnSpin.addEventListener("click", () => { autoSpin = !autoSpin; btnSpin.setAttribute("aria-pressed", autoSpin); });
   const fluxIn = document.getElementById("fluxIn"), fluxVal = document.getElementById("fluxVal"), statusEl = document.getElementById("status");
+  const fcIn = document.getElementById("fcIn");
   function setFlux(f) {
     flux = f;
-    level = LEVELS.filter((l) => f >= l.min).pop();
+    let base = LEVELS.filter((l) => f >= l.min).pop();
+    const byForecast = forecast && base.key === "green";
+    level = byForecast ? Object.assign({}, LEVELS[1], { hud: "STORM FORECAST · FINISH EVA", act: "Plan to finish or postpone EVAs. Ready shielding." }) : base;
     pMat.color.setHex(level.color);
     fluxVal.textContent = (f >= 100 ? Math.round(f).toLocaleString("en-US") : f.toFixed(f < 10 ? 1 : 0)) + " pfu";
     statusEl.style.setProperty("--lv", level.css);
-    document.getElementById("statusTxt").textContent = level.tag + " · " + level.noaa + ". " + level.act;
+    document.getElementById("statusTxt").textContent = level.label + (byForecast ? " (READYation forecast)" : "") + ". " + level.act;
   }
   fluxIn.addEventListener("input", () => setFlux(Math.pow(10, +fluxIn.value)));
+  fcIn.addEventListener("change", () => { forecast = fcIn.checked; setFlux(flux); });
   for (const b of document.querySelectorAll(".presets button")) b.addEventListener("click", () => {
-    const f = +b.dataset.f; fluxIn.value = Math.log10(f); setFlux(f);
+    const f = +b.dataset.f; fluxIn.value = Math.log10(f);
+    forecast = b.dataset.fc === "1"; fcIn.checked = forecast; setFlux(f);
   });
-  setFlux(1);
+  setFlux(0.3);
   let visorDown = true, visorAngle = 0;
   btnVisor.addEventListener("click", () => {
     visorDown = !visorDown;

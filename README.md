@@ -6,15 +6,15 @@ Radiation readiness on the astronaut visor. An interactive 3D helmet that turns 
 
 ## What it does
 - Drag to rotate the helmet, scroll to zoom, double-click to reset
-- Set the >10 MeV proton flux (1 to 100,000 pfu) or pick a real event (May 2024, Sep 2017, Mar 2012)
-- The visor display changes with the level
-  - below 10 pfu: green, NOMINAL
-  - 10+: yellow, CAUTION
-  - 100+: orange, WARNING
-  - 1,000+: red, DANGER
+- Set the >10 MeV proton flux, switch on a READYation storm forecast, or step through the September 2017 storm
+- The visor display uses the same tiers as the READYation mission console
+  - Green CLEAR when there is no alert
+  - Yellow WATCH when flux holds at 1 pfu or more for 15 minutes, or when the READYation model forecasts a storm
+  - Orange STORM at NOAA S1 (10 pfu)
+  - Red DANGER at NOAA S3 (1,000 pfu)
 - Astronaut view puts the camera inside the helmet so you see the warning the way the crew would
 
-Thresholds follow NOAA's solar radiation storm scale (S1 = 10, S2 = 100, S3 = 1,000 pfu). Protons and hits are illustrative.
+Protons and hits are illustrative. The helmet shows how a READYation alert would reach a crew member. The forecasts themselves come from the READYation model (IBM Granite TinyTimeMixer r2, fine-tuned on 2010 to 2013 and tested on 2014 to 2020).
 
 ## Context
 Part of a datathon project (NASA Track: Beyond Earth) using NASA OMNI space weather data. The analysis found that radiation storms usually arrive before geomagnetic storms, and most come with no strong geomagnetic storm at all, so crew radiation decisions should follow proton flux rather than geomagnetic alerts.
