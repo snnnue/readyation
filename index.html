@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>READYation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: one full-bleed viewport of space, the helmet centered, quiet controls on the edges. Single dark theme by choice. */
+:root {
+  --space: #05070d;
+  --ink: #e9ecf3;
+  --muted: #8f97aa;
+  --chip: rgba(20, 26, 40, 0.78);
+  --line: rgba(255, 255, 255, 0.12);
+  --rad: #f08a3c;
+  --font-body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; margin: 0; background: var(--space); color: var(--ink); font: 15px/1.5 var(--font-body); overflow: hidden; }
+#stage { position: fixed; inset: 0; touch-action: none; cursor: grab; }
+#stage.dragging { cursor: grabbing; }
+canvas { display: block; }
+.hud { position: fixed; left: 20px; right: 20px; pointer-events: none; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.top { top: 18px; }
+.bottom { bottom: 18px; align-items: flex-end; }
+.title h1 { margin: 0; font-size: 1.25rem; letter-spacing: 0.01em; }
+.title p { margin: 2px 0 0; color: var(--muted); font-size: 0.88rem; }
+.hint { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); background: var(--chip); border: 1px solid var(--line); padding: 7px 11px; border-radius: 8px; }
+.controls { display: flex; gap: 8px; flex-wrap: wrap; pointer-events: auto; }
+button { font: 600 0.88rem var(--font-body); color: var(--ink); background: var(--chip); border: 1px solid var(--line); border-radius: 9px; padding: 8px 13px; cursor: pointer; backdrop-filter: blur(6px); }
+button[aria-pressed="true"] { border-color: var(--rad); color: #fff; box-shadow: inset 0 0 0 1px var(--rad); }
+button:focus-visible { outline: 2px solid var(--rad); outline-offset: 2px; }
+.note { color: var(--muted); font-size: 0.8rem; max-width: 34ch; text-align: right; }
+.flux { pointer-events: auto; width: min(340px, 100%); background: var(--chip); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 8px; backdrop-filter: blur(6px); }
+.flux-head { display: flex; justify-content: space-between; align-items: baseline; }
+.flux h2 { margin: 0; font-size: 0.95rem; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+#fluxVal { font-size: 1rem; color: var(--ink); }
+#fluxIn { width: 100%; accent-color: var(--rad); }
+.ticks { display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--muted); margin-top: -4px; }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.presets button { padding: 5px 9px; font-size: 0.78rem; font-weight: 600; }
+.flux .note { text-align: left; max-width: none; margin: 0; font-size: 0.74rem; }
+.status { display: flex; gap: 8px; align-items: center; font-size: 0.82rem; }
+.status i { width: 10px; height: 10px; border-radius: 50%; background: var(--lv, #4fd18b); flex: none; }
+@media (max-width: 640px) { .hint { display: none; } }
+#fail { position: fixed; inset: 0; display: none; place-items: center; text-align: center; padding: 24px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div id="stage" tabindex="0" aria-label="READYation 3D astronaut helmet. Drag to rotate, scroll to zoom, arrow keys also rotate."></div>
+
+<div class="hud top">
+  <div class="title">
+    <h1>READYation</h1>
+    <p>Radiation readiness on the astronaut visor</p>
+  </div>
+  <div class="hint">Drag to rotate · Scroll to zoom · Double-click to reset</div>
+</div>
+
+<div class="hud bottom">
+  <div class="controls">
+    <button id="btnSpin" type="button" aria-pressed="false">Auto-rotate</button>
+    <button id="btnPov" type="button" aria-pressed="false">Astronaut view</button>
+    <button id="btnVisor" type="button" aria-pressed="true">Visor down</button>
+    <button id="btnReset" type="button">Reset view</button>
+  </div>
+  <section class="flux" aria-labelledby="fluxTitle">
+    <div class="flux-head"><h2 id="fluxTitle">Proton flux</h2><span class="mono" id="fluxVal">1 pfu</span></div>
+    <p class="status" id="status" role="status" aria-live="polite"><i></i><span id="statusTxt">Quiet · below S1. Normal operations.</span></p>
+    <input type="range" id="fluxIn" min="0" max="5" step="0.01" value="0" aria-label="Proton flux, greater than 10 MeV, log scale from 1 to 100,000 pfu">
+    <div class="ticks mono" aria-hidden="true"><span>1</span><span>10</span><span>100</span><span>1k</span><span>10k</span><span>100k</span></div>
+    <div class="presets" role="group" aria-label="Real events">
+      <button type="button" data-f="1">Quiet</button>
+      <button type="button" data-f="207">May 2024 · 207</button>
+      <button type="button" data-f="1298">Sep 2017 · 1,298</button>
+      <button type="button" data-f="5655">Mar 2012 · 5,655</button>
+    </div>
+    <p class="note">Protons above 10 MeV. Thresholds follow NOAA's radiation storm scale (S1 = 10, S2 = 100, S3 = 1,000 pfu). Protons and hits are illustrative.</p>
+  </section></div>
+
+<div id="fail">This view needs WebGL, which this browser has turned off.</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  const stage = document.getElementById("stage");
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  } catch (e) {
+    document.getElementById("fail").style.display = "grid";
+    return;
+  }
+  const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  stage.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x05070d);
+  const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.1, 200);
+  const CAM_DEFAULT = 5.7;
+  let camDist = CAM_DEFAULT;
+  camera.position.set(0, 0.15, camDist);
+
+  /* ---------- environment for reflections: night sky, Earth below, aurora band, a sun ----------
+     Built as a plain 8-bit cube map on canvases so it works on every GPU (no float render targets). */
+  function skyColor(x, y, z) {
+    const L = Math.hypot(x, y, z); x /= L; y /= L; z /= L;
+    const sm = (a, b, t) => { const k = Math.min(1, Math.max(0, (t - a) / (b - a))); return k * k * (3 - 2 * k); };
+    let r = 0.02, g = 0.03, b = 0.06;
+    const up = sm(-0.2, 0.6, y); r += 0.05 * up; g += 0.07 * up; b += 0.12 * up;
+    const earth = sm(-0.05, -0.35, y);
+    r = r * (1 - earth) + 0.04 * earth; g = g * (1 - earth) + 0.14 * earth; b = b * (1 - earth) + 0.30 * earth;
+    const limb = Math.exp(-Math.pow((y + 0.08) / 0.05, 2));
+    r += 0.25 * limb; g += 0.55 * limb; b += 1.0 * limb;
+    const band = Math.exp(-Math.pow((y - 0.18) / 0.07, 2)) * (0.6 + 0.4 * Math.sin(x * 9 + z * 5));
+    const pink = Math.exp(-Math.pow((y - 0.3) / 0.06, 2));
+    r += 0.07 * band + 0.28 * pink; g += 0.63 * band + 0.1 * pink; b += 0.38 * band + 0.25 * pink;
+    const s = Math.max(0, x * 0.62 + y * 0.46 + z * 0.64);
+    const sun = Math.pow(s, 400) * 6 + Math.pow(s, 24) * 0.5;
+    r += sun; g += sun * 0.95; b += sun * 0.85;
+    return [r, g, b];
+  }
+  function buildEnvironment() {
+    const S = 128, faces = [];
+    const dirs = [
+      (u, v) => [1, -v, -u], (u, v) => [-1, -v, u], (u, v) => [u, 1, v],
+      (u, v) => [u, -1, -v], (u, v) => [u, -v, 1], (u, v) => [-u, -v, -1],
+    ];
+    for (const f of dirs) {
+      const c = document.createElement("canvas"); c.width = c.height = S;
+      const ctx = c.getContext("2d"), img = ctx.createImageData(S, S);
+      for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
+        const u = 2 * (i + 0.5) / S - 1, v = 2 * (j + 0.5) / S - 1;
+        const [r, g, b] = skyColor(...f(u, v)), k = (j * S + i) * 4;
+        const tone = (x) => Math.round(255 * Math.pow(Math.min(1, x / (1 + x * 0.35)), 1 / 2.2));
+        img.data[k] = tone(r); img.data[k + 1] = tone(g); img.data[k + 2] = tone(b); img.data[k + 3] = 255;
+      }
+      ctx.putImageData(img, 0, 0); faces.push(c);
+    }
+    const tex = new THREE.CubeTexture(faces);
+    tex.encoding = THREE.sRGBEncoding;
+    tex.needsUpdate = true;
+    return tex;
+  }
+  scene.environment = buildEnvironment();
+
+  /* ---------- background stars ---------- */
+  (function stars() {
+    const n = 1800, pos = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const u = Math.random() * 2 - 1, t = Math.random() * Math.PI * 2, r = 60 + Math.random() * 40;
+      const s = Math.sqrt(1 - u * u);
+      pos.set([r * s * Math.cos(t), r * u, r * s * Math.sin(t)], i * 3);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0xcfd8ff, size: 0.18, sizeAttenuation: true, transparent: true, opacity: 0.8 })));
+  })();
+
+  /* ---------- lights ---------- */
+  scene.add(new THREE.HemisphereLight(0x9fb8ff, 0x0b1222, 0.45));
+  const key = new THREE.DirectionalLight(0xfff3e0, 2.2); key.position.set(4, 3, 4); scene.add(key);
+  const rim = new THREE.DirectionalLight(0x6ea0ff, 1.2); rim.position.set(-4, 1.5, -3); scene.add(rim);
+  const fill = new THREE.DirectionalLight(0x88ffd0, 0.35); fill.position.set(-3, -2, 3); scene.add(fill);
+
+  /* ---------- helmet ---------- */
+  const helmet = new THREE.Group();
+  scene.add(helmet);
+
+  const shellMat = new THREE.MeshPhysicalMaterial({ color: 0xf2f2ee, roughness: 0.38, metalness: 0.0, clearcoat: 0.6, clearcoatRoughness: 0.25, envMapIntensity: 0.7 });
+  const metalMat = new THREE.MeshStandardMaterial({ color: 0xa8adb6, roughness: 0.3, metalness: 1.0, envMapIntensity: 1.0 });
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x22262e, roughness: 0.6, metalness: 0.3 });
+  const goldMat = new THREE.MeshPhysicalMaterial({ color: 0xffb53c, emissive: 0x6b4206, emissiveIntensity: 0.22, metalness: 0.9, roughness: 0.1, clearcoat: 1.0, clearcoatRoughness: 0.05, envMapIntensity: 1.4, transparent: true, opacity: 0.42, depthWrite: false, side: THREE.DoubleSide });
+  const clearMat = new THREE.MeshPhysicalMaterial({ color: 0x88a0b8, metalness: 0.0, roughness: 0.05, transparent: true, opacity: 0.12, depthWrite: false, envMapIntensity: 1.0, side: THREE.DoubleSide });
+
+  const R = 1.0;
+  // Shell: sphere slightly elongated vertically, with the front opening left for the visor.
+  const cap = 0.92; // half-angle (rad) of the face opening
+  const shellGeo = new THREE.SphereGeometry(R, 96, 64);
+  // remove faces inside the front opening
+  function cutOpening(geo) {
+    const p = geo.attributes.position, idx = geo.index.array, keep = [];
+    const v = new THREE.Vector3();
+    const inside = (i) => { v.fromBufferAttribute(p, i).normalize(); return Math.acos(Math.min(1, v.z)) < cap; };
+    for (let i = 0; i < idx.length; i += 3) {
+      if (!(inside(idx[i]) && inside(idx[i + 1]) && inside(idx[i + 2]))) keep.push(idx[i], idx[i + 1], idx[i + 2]);
+    }
+    geo.setIndex(keep);
+  }
+  cutOpening(shellGeo);
+  const shell = new THREE.Mesh(shellGeo, shellMat);
+  shell.scale.set(1, 1.06, 1);
+  helmet.add(shell);
+
+  // Inner liner so you never see through the opening into empty space.
+  const linerGeo = new THREE.SphereGeometry(R * 0.965, 96, 64); cutOpening(linerGeo);
+  const liner = new THREE.Mesh(linerGeo, new THREE.MeshStandardMaterial({ color: 0x15181f, roughness: 0.9, side: THREE.BackSide }));
+  liner.scale.copy(shell.scale);
+  helmet.add(liner);
+
+  // Visor frame (ring around the opening)
+  const ringR = R * Math.sin(cap), ringZ = R * Math.cos(cap);
+  const frame = new THREE.Mesh(new THREE.TorusGeometry(ringR, 0.045, 24, 128), metalMat);
+  frame.position.z = ringZ; frame.scale.set(1, 1.06, 1);
+  helmet.add(frame);
+
+  // Visors: gold sun visor (movable) over a clear pressure visor
+  function capGeo(r, a) {
+    const g = new THREE.SphereGeometry(r, 96, 48, 0, Math.PI * 2, 0, a);
+    g.rotateX(Math.PI / 2); // pole now points +z
+    return g;
+  }
+  const clearVisor = new THREE.Mesh(capGeo(R * 1.005, cap + 0.02), clearMat);
+  clearVisor.scale.set(1, 1.06, 1);
+  helmet.add(clearVisor);
+
+  const visorPivot = new THREE.Group(); // rotates about the helmet's x axis to raise/lower
+  helmet.add(visorPivot);
+  const goldVisor = new THREE.Mesh(capGeo(R * 1.035, cap + 0.05), goldMat);
+  goldVisor.scale.set(1, 1.06, 1);
+  visorPivot.add(goldVisor);
+  const visorRim = new THREE.Mesh(new THREE.TorusGeometry(R * 1.035 * Math.sin(cap + 0.05), 0.022, 16, 128), metalMat);
+  visorRim.position.z = R * 1.035 * Math.cos(cap + 0.05); visorRim.scale.set(1, 1.06, 1);
+  visorPivot.add(visorRim);
+
+  // Side pivot hubs (where the visor hinges)
+  for (const s of [-1, 1]) {
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.08, 48), metalMat);
+    hub.rotation.z = Math.PI / 2; hub.position.set(s * 1.04, 0.02, 0.02);
+    helmet.add(hub);
+    const cap2 = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.1, 32), darkMat);
+    cap2.rotation.z = Math.PI / 2; cap2.position.set(s * 1.08, 0.02, 0.02);
+    helmet.add(cap2);
+  }
+
+  // Helmet lights and camera pods
+  function lamp(side) {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.18, 0.34), shellMat);
+    const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.03, 32), new THREE.MeshStandardMaterial({ color: 0xfff6d8, emissive: 0xfff2c0, emissiveIntensity: 1.2 }));
+    lens.rotation.x = Math.PI / 2; lens.position.z = 0.175;
+    const mount = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.14, 16), metalMat);
+    mount.rotation.z = Math.PI / 2; mount.position.x = -side * 0.12;
+    g.add(body, lens, mount);
+    g.position.set(side * 1.02, 0.42, 0.18);
+    g.rotation.y = side * -0.25;
+    return g;
+  }
+  helmet.add(lamp(1), lamp(-1));
+
+  // Rear vent
+  const vent = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.16, 0.06), darkMat);
+  vent.position.set(0, 0.25, -1.0); helmet.add(vent);
+
+  // Neck ring and collar
+  const neckY = -0.92;
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.66, 0.7, 0.16, 96, 1, true), metalMat);
+  neck.position.y = neckY; helmet.add(neck);
+  const neckLip = new THREE.Mesh(new THREE.TorusGeometry(0.71, 0.05, 16, 128), metalMat);
+  neckLip.rotation.x = Math.PI / 2; neckLip.position.y = neckY - 0.08; helmet.add(neckLip);
+  const lockRing = new THREE.Mesh(new THREE.TorusGeometry(0.69, 0.035, 12, 128), new THREE.MeshStandardMaterial({ color: 0x2a6fd6, roughness: 0.35, metalness: 0.6 }));
+  lockRing.rotation.x = Math.PI / 2; lockRing.position.y = neckY + 0.06; helmet.add(lockRing);
+  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.74, 0.95, 0.38, 96, 1, true), new THREE.MeshPhysicalMaterial({ color: 0xe9e7e1, roughness: 0.75, side: THREE.DoubleSide }));
+  collar.position.y = neckY - 0.3; helmet.add(collar);
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const bolt = new THREE.Mesh(new THREE.SphereGeometry(0.03, 12, 8), darkMat);
+    bolt.position.set(Math.cos(a) * 0.715, neckY - 0.08, Math.sin(a) * 0.715);
+    helmet.add(bolt);
+  }
+
+  helmet.rotation.set(0.08, -0.5, 0);
+
+  /* ---------- proton hits, driven by the flux level (illustrative) ---------- */
+  const LEVELS = [
+    { min: 0,    tag: "Quiet",          noaa: "below S1", color: 0x4fd18b, css: "#4fd18b", head: "No radiation storm.", act: "Normal operations.", hud: "NOMINAL" },
+    { min: 10,   tag: "Caution",        noaa: "NOAA S1",  color: 0xf2c94c, css: "#f2c94c", head: "Radiation storm starting. Avoid exposure.", act: "Keep EVA short. Plan a route back to shielding.", hud: "AVOID EXPOSURE · KEEP EVA SHORT" },
+    { min: 100,  tag: "Warning",        noaa: "NOAA S2",  color: 0xf08a3c, css: "#f08a3c", head: "Radiation rising. Avoid new EVA.", act: "Do not start an EVA. Stay near the shelter.", hud: "NO NEW EVA · STAY NEAR SHELTER" },
+    { min: 1000, tag: "Danger",         noaa: "NOAA S3+", color: 0xff4d4d, css: "#ff4d4d", head: "Strong radiation storm. Take shelter now.", act: "End EVA. Move to the most shielded area.", hud: "END EVA · SHELTER NOW" },
+  ];
+  let flux = 1, level = LEVELS[0];
+  const NP = 90;
+  const pPos = new Float32Array(NP * 6);
+  const pGeo = new THREE.BufferGeometry();
+  pGeo.setAttribute("position", new THREE.BufferAttribute(pPos, 3));
+  const pMat = new THREE.LineBasicMaterial({ color: level.color, transparent: true, opacity: 1 });
+  const pLines = new THREE.LineSegments(pGeo, pMat);
+  scene.add(pLines);
+  const parts = [];
+  const tmp = new THREE.Vector3();
+  function spawn(p) {
+    const dir = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 1.2 - 0.4, Math.random() * 2 - 1).normalize();
+    p.target = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8 - 0.3, Math.random() - 0.5).multiplyScalar(0.9);
+    p.pos = p.target.clone().addScaledVector(dir, 8 + Math.random() * 6);
+    p.vel = p.target.clone().sub(p.pos).normalize().multiplyScalar(0.11 + Math.random() * 0.06);
+  }
+  for (let i = 0; i < NP; i++) { const p = {}; spawn(p); p.pos.addScaledVector(p.vel, -Math.random() * 120); parts.push(p); }
+  function activeCount() {                      // 1 pfu -> 3 protons, 100,000 pfu -> 90
+    const lf = Math.max(0, Math.min(5, Math.log10(flux)));
+    return Math.round(3 + (NP - 3) * Math.pow(lf / 5, 1.3));
+  }
+  const flashes = [];
+  const flashTex = (function () {
+    const c = document.createElement("canvas"); c.width = c.height = 64;
+    const x = c.getContext("2d"); const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0, "rgba(255,255,255,0.9)"); g.addColorStop(0.35, "rgba(255,255,255,0.45)"); g.addColorStop(1, "rgba(255,255,255,0)");
+    x.fillStyle = g; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c);
+  })();
+  const HIT_SIZE = 0.09, HIT_OPACITY = 0.5;      // hit circle: small and faint
+  function flash(at) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: flashTex, color: level.color, transparent: true, opacity: HIT_OPACITY, depthWrite: false, blending: THREE.AdditiveBlending }));
+    s.position.copy(at); s.scale.setScalar(HIT_SIZE); s.userData.life = 1; scene.add(s); flashes.push(s);
+  }
+  function stepParticles() {
+    const n = activeCount();
+    for (let i = 0; i < NP; i++) {
+      const p = parts[i];
+      if (i >= n) { pPos.fill(0, i * 6, i * 6 + 6); continue; }
+      p.pos.add(p.vel);
+      if (p.pos.length() < 1.12) { flash(tmp.copy(p.pos).setLength(1.1)); spawn(p); }
+      const tail = tmp.copy(p.pos).addScaledVector(p.vel, -7);
+      pPos.set([p.pos.x, p.pos.y, p.pos.z, tail.x, tail.y, tail.z], i * 6);
+    }
+    pGeo.attributes.position.needsUpdate = true;
+    for (let i = flashes.length - 1; i >= 0; i--) {
+      const s = flashes[i]; s.userData.life -= 0.05;
+      s.material.opacity = Math.max(0, s.userData.life) * HIT_OPACITY;
+      s.scale.setScalar(HIT_SIZE * (1 + (1 - s.userData.life) * 0.8));
+      if (s.userData.life <= 0) { scene.remove(s); s.material.dispose(); flashes.splice(i, 1); }
+    }
+  }
+
+
+  /* ---------- holographic visor display ---------- */
+  const hudCanvas = document.createElement("canvas"); hudCanvas.width = 512; hudCanvas.height = 256;
+  const hudCtx = hudCanvas.getContext("2d");
+  const hudTex = new THREE.CanvasTexture(hudCanvas);
+  hudTex.encoding = THREE.sRGBEncoding;
+  const hudMat = new THREE.MeshBasicMaterial({ map: hudTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
+  const hudGeoOut = new THREE.PlaneGeometry(0.46, 0.23);              // readable from outside
+  const hudGeoIn = new THREE.PlaneGeometry(0.46, 0.23); hudGeoIn.rotateY(Math.PI); // readable from inside
+  const hud = new THREE.Group();
+  hud.add(new THREE.Mesh(hudGeoOut, hudMat), new THREE.Mesh(hudGeoIn, hudMat));
+  hud.children.forEach((m) => (m.renderOrder = 10));
+  hud.position.set(0, -0.12, 0.82); hud.rotation.x = -0.12;
+  helmet.add(hud);
+  function drawHud(t) {
+    const c = hudCtx, W = 512, H = 256, col = level.css;
+    c.clearRect(0, 0, W, H);
+    const flick = 0.88 + 0.12 * Math.sin(t * 0.02);
+    const alarm = level.min >= 1000 ? (0.65 + 0.35 * Math.abs(Math.sin(t * 0.004))) : 1;
+    c.globalAlpha = flick * alarm;
+    c.strokeStyle = col; c.fillStyle = col; c.lineWidth = 4;
+    // corner brackets
+    const k = 30;
+    [[8, 8, 1, 1], [W - 8, 8, -1, 1], [8, H - 8, 1, -1], [W - 8, H - 8, -1, -1]].forEach(([x, y, dx, dy]) => {
+      c.beginPath(); c.moveTo(x + dx * k, y); c.lineTo(x, y); c.lineTo(x, y + dy * k); c.stroke();
+    });
+    c.globalAlpha *= 0.12; c.fillRect(8, 8, W - 16, H - 16); c.globalAlpha = flick * alarm;
+    c.textBaseline = "top";
+    const maxW = W - 68;                         // keep every line inside the frame
+    const fit = (txt, weight, size, family) => {
+      do { c.font = `${weight} ${size}px ${family}`; size -= 1; } while (c.measureText(txt).width > maxW && size > 12);
+    };
+    fit(level.tag.toUpperCase(), 700, 84, "'JetBrains Mono', monospace");
+    c.fillText(level.tag.toUpperCase(), 34, 46);
+    fit(level.hud, 600, 32, "'Atkinson Hyperlegible', sans-serif");
+    c.fillText(level.hud, 34, 164);
+    // scanlines
+    c.globalAlpha = 0.18; c.fillStyle = "#000";
+    for (let y = 0; y < H; y += 4) c.fillRect(0, y, W, 1);
+    c.globalAlpha = 1;
+    hudTex.needsUpdate = true;
+  }
+
+  /* ---------- interaction: drag to rotate, wheel/pinch to zoom ---------- */
+  let dragging = false, lastX = 0, lastY = 0, velX = 0, velY = 0;
+  let autoSpin = false;
+  let pov = false;
+  const pointers = new Map(); let pinchStart = 0, pinchDist0 = 0;
+  const clampPitch = (v) => Math.max(-1.1, Math.min(1.1, v));
+
+  stage.addEventListener("pointerdown", (e) => {
+    stage.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      pinchStart = Math.hypot(a.x - b.x, a.y - b.y); pinchDist0 = camDist;
+    }
+    dragging = true; lastX = e.clientX; lastY = e.clientY; velX = velY = 0;
+    stage.classList.add("dragging");
+  });
+  stage.addEventListener("pointermove", (e) => {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (pinchStart > 0) camDist = Math.max(3, Math.min(9, pinchDist0 * pinchStart / d));
+      return;
+    }
+    if (!dragging) return;
+    const dx = e.clientX - lastX, dy = e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    velX = dx * 0.006 * (pov ? -0.6 : 1); velY = dy * 0.006 * (pov ? -0.6 : 1);
+    helmet.rotation.y += velX;
+    helmet.rotation.x = clampPitch(helmet.rotation.x + velY);
+  });
+  const end = (e) => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchStart = 0;
+    if (pointers.size === 0) { dragging = false; stage.classList.remove("dragging"); }
+  };
+  stage.addEventListener("pointerup", end);
+  stage.addEventListener("pointercancel", end);
+  stage.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    camDist = Math.max(3, Math.min(9, camDist * (1 + Math.sign(e.deltaY) * 0.08)));
+  }, { passive: false });
+  stage.addEventListener("dblclick", resetView);
+  stage.addEventListener("keydown", (e) => {
+    const k = { ArrowLeft: [-0.15, 0], ArrowRight: [0.15, 0], ArrowUp: [0, -0.12], ArrowDown: [0, 0.12] }[e.key];
+    if (k) { helmet.rotation.y += k[0]; helmet.rotation.x = clampPitch(helmet.rotation.x + k[1]); e.preventDefault(); }
+    if (e.key === "+" || e.key === "=") camDist = Math.max(3, camDist * 0.92);
+    if (e.key === "-") camDist = Math.min(9, camDist * 1.08);
+  });
+
+  function resetView() {
+    helmet.rotation.set(0.08, -0.5, 0); camDist = CAM_DEFAULT; velX = velY = 0;
+  }
+
+  /* ---------- buttons ---------- */
+  const btnSpin = document.getElementById("btnSpin"), btnVisor = document.getElementById("btnVisor"), btnPov = document.getElementById("btnPov");
+  btnPov.addEventListener("click", () => {
+    pov = !pov; btnPov.setAttribute("aria-pressed", pov);
+    if (pov) { helmet.rotation.set(0, 0, 0); velX = velY = 0; autoSpin = false; btnSpin.setAttribute("aria-pressed", false); }
+    else resetView();
+    camera.fov = pov ? 72 : 38; camera.updateProjectionMatrix();
+  });
+  btnSpin.setAttribute("aria-pressed", autoSpin);
+  btnSpin.addEventListener("click", () => { autoSpin = !autoSpin; btnSpin.setAttribute("aria-pressed", autoSpin); });
+  const fluxIn = document.getElementById("fluxIn"), fluxVal = document.getElementById("fluxVal"), statusEl = document.getElementById("status");
+  function setFlux(f) {
+    flux = f;
+    level = LEVELS.filter((l) => f >= l.min).pop();
+    pMat.color.setHex(level.color);
+    fluxVal.textContent = (f >= 100 ? Math.round(f).toLocaleString("en-US") : f.toFixed(f < 10 ? 1 : 0)) + " pfu";
+    statusEl.style.setProperty("--lv", level.css);
+    document.getElementById("statusTxt").textContent = level.tag + " · " + level.noaa + ". " + level.act;
+  }
+  fluxIn.addEventListener("input", () => setFlux(Math.pow(10, +fluxIn.value)));
+  for (const b of document.querySelectorAll(".presets button")) b.addEventListener("click", () => {
+    const f = +b.dataset.f; fluxIn.value = Math.log10(f); setFlux(f);
+  });
+  setFlux(1);
+  let visorDown = true, visorAngle = 0;
+  btnVisor.addEventListener("click", () => {
+    visorDown = !visorDown;
+    btnVisor.setAttribute("aria-pressed", visorDown);
+    btnVisor.textContent = visorDown ? "Visor down" : "Visor up";
+  });
+  document.getElementById("btnReset").addEventListener("click", resetView);
+
+  /* ---------- loop ---------- */
+  function onResize() {
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener("resize", onResize);
+
+  function tick() {
+    if (!dragging) {
+      helmet.rotation.y += velX; helmet.rotation.x = clampPitch(helmet.rotation.x + velY);
+      velX *= 0.94; velY *= 0.94;
+      if (autoSpin && Math.abs(velX) < 0.0015) helmet.rotation.y += 0.003;
+    }
+    const target = visorDown ? 0 : -1.15;
+    visorAngle += (target - visorAngle) * 0.08;
+    visorPivot.rotation.x = visorAngle;
+    if (pov) {
+      helmet.updateMatrixWorld();
+      camera.position.copy(helmet.localToWorld(new THREE.Vector3(0, 0.02, 0.18)));
+      camera.lookAt(helmet.localToWorld(new THREE.Vector3(innerWidth > 700 ? -0.4 : 0, -0.06, 3)));
+    } else {
+      camera.position.set(0, 0.15, camDist); camera.lookAt(0, 0.08, 0);
+    }
+    drawHud(performance.now());
+    stepParticles();
+    renderer.render(scene, camera);
+    requestAnimationFrame(tick);
+  }
+  tick();
+})();
+</script>
+</body>
+</html>
