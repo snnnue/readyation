@@ -2,7 +2,8 @@
 
 Radiation readiness on the astronaut visor. An interactive 3D helmet that turns solar proton flux into a visor warning.
 
-**Live site:** https://snnnue.github.io/readyation/
+**Live site:** https://snnnue.github.io/readyation/  
+**Mission console:** https://snnnue.github.io/readyation/console/
 
 ## What it does
 - Drag to rotate the helmet, scroll to zoom, double-click to reset
